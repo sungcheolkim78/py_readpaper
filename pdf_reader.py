@@ -40,10 +40,7 @@ def convertPDF_pdfminer(pdf_path, codec='utf-8', maxpages=0):
     caching = True
     pagenos = set()
 
-    for page in PDFPage.get_pages(fp, pagenos, maxpages=maxpages,
-                                  password=password,
-                                  caching=caching,
-                                  check_extractable=True):
+    for page in PDFPage.get_pages(fp, pagenos, maxpages=maxpages, password=password, caching=caching, check_extractable=True):
         interpreter.process_page(page)
 
     text = retstr.getvalue()
@@ -52,13 +49,16 @@ def convertPDF_pdfminer(pdf_path, codec='utf-8', maxpages=0):
     device.close()
     retstr.close()
 
+    text = text.split('\n')
+    text = [ t+'\n' for t in text ]
     return text
 
 
 def convertPDF_xpdf(pdf_path, codec='utf-8', maxpages=0, update=False):
     """ convert PDF to text using pdftotext """
 
-    txt_path = pdf_path.replace('.pdf', '.txt')
+    base, fname = os.path.split(os.path.abspath(pdf_path))
+    txt_path = base + '/.' + fname.replace('.pdf', '.txt')
     #print('... save to {}'.format(txt_path))
 
     if (not update) and os.path.exists(txt_path):
@@ -72,8 +72,9 @@ def convertPDF_xpdf(pdf_path, codec='utf-8', maxpages=0, update=False):
     try:
         text = open(txt_path, 'r', encoding=codec).readlines()
         return text
+
     except:
-        os.remove(txt_path)
+        if os.path.exists(txt_path): os.remove(txt_path)
         return convertPDF_pdfminer(pdf_path, codec=codec, maxpages=maxpages)
 
 
