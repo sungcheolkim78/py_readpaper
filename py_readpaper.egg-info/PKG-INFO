@@ -1,0 +1,24 @@
+Metadata-Version: 2.1
+Name: py-readpaper
+Version: 1.0.0.dev1
+Summary: paper journal extract pdf
+Home-page: https://github.com/sungcheolkim78/py_readpaper
+Author: Sungcheol Kim
+Author-email: sungcheol.kim78@gmail.com
+License: UNKNOWN
+Description: UNKNOWN
+Keywords: pdf journal extract metadata
+Platform: UNKNOWN
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Topic :: Software Development :: Build Tools
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.4
+Classifier: Programming Language :: Python :: 3.5
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Requires-Python: >=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, <4
+Description-Content-Type: text/markdown
+Provides-Extra: dev
+Provides-Extra: test
