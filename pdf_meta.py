@@ -8,6 +8,7 @@ sources:
     3. pmid, pmcid - ncbi
 """
 
+import os
 import json
 import requests
 from urllib.parse import urlencode, quote_plus
@@ -15,20 +16,23 @@ from urllib.error import HTTPError
 
 import bibtexparser
 from bibtexparser.bparser import BibTexParser
+from bibtexparser.bibdatabase import BibDatabase
+from bibtexparser.bwriter import BibTexWriter
 
 from arxiv2bib import arxiv2bib
 
 from Levenshtein import ratio, matching_blocks, editops
 
-def get_bib(doi, asDict=True):
+def get_bib(doi, filename=None):
     """ get bib from crossref.org and arXiv.org """
 
-    found = False
-
     if doi is None:
-        return found, None
-    if doi == "":
-        return found, None
+        return False, None
+    if not isinstance(doi, str):
+        return False, None
+
+    found = False
+    bib = None
 
     # for arXiv:XXXX case
     if doi.lower()[:5] == "arxiv":
@@ -44,23 +48,64 @@ def get_bib(doi, asDict=True):
         url = url.format(bare_url, doi)
 
         r = requests.get(url)
+
         found = False if r.status_code != 200 else True
-        bib = str(r.content, "utf-8")
 
-    if not found:
-        return found, None
+        bibtex_str = str(r.content, "utf-8")
 
-    if asDict:
-        parser = BibTexParser(common_strings=True)
-        parser.ignore_nonstandard_types = False
-        parser.homogenise_fields = False
+        if bibtex_str.find("Resource not found") == -1:
+            if filename is not None:
+                with open(filename, "w") as f:
+                    f.write(bibtex_str)
 
-        bdb = bibtexparser.loads(bib, parser)
-        entry = bdb.entries[0]
+            bib = bib_to_dict(bibtex_str)
+        else:
+            found = False
 
-        return found, entry
+    return found, bib
+
+
+def save_bib(bib_dict, filename):
+    """ save dictionay bib records into file """
+
+    if bib_dict is None: return
+
+    db = BibDatabase()
+    db.entries = bib_dict
+    writer = BibTexWriter()
+
+    with open(filename, 'w') as bibfile:
+        bibfile.write(writer.write(db))
+
+    print('... save to {}'.format(filename))
+
+
+def read_bib(filename):
+    """ read bibtex file and return bibtexparser object """
+
+    if not os.path.exists(filename):
+        print("... no bib file: {}".foramt(filename))
+        return
+
+    with open(filename) as f:
+        bibtex_str = f.read()
+
+    return bib_to_dict(bibtex_str)
+
+
+def bib_to_dict(bib_string):
+    """ convert bibtex string to dictionary """
+
+    parser = BibTexParser(common_strings=True)
+    parser.ignore_nonstandard_types = False
+    parser.homogenise_fields = False
+
+    bdb = bibtexparser.loads(bib_string, parser)
+
+    if len(bdb.entries) > 0:
+        return bdb.entries[0]
     else:
-        return found, bib
+        return None
 
 
 def get_pmid(idstring, debug=False):
@@ -97,6 +142,8 @@ EMPTY_RESULT = {
 
 # modified from https://github.com/OpenAPC/openapc-de/blob/master/python/import_dois.py
 def crossref_query_title(title):
+    """ retrieve doi from paper title """
+
     api_url = "https://api.crossref.org/works?"
     params = {"rows": "5", "query.title": title}
     url = api_url + urlencode(params, quote_via=quote_plus)

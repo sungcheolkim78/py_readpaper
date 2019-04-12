@@ -17,7 +17,11 @@ from pdf_text import find_author1
 from pdf_text import find_keywords
 from pdf_text import find_doi
 
-from pdf_meta import get_bib, get_pmid, crossref_query_title
+from pdf_meta import get_bib
+from pdf_meta import get_pmid
+from pdf_meta import crossref_query_title
+from pdf_meta import read_bib
+from pdf_meta import save_bib
 
 # summary or keyword generator
 from gensim.summarization import keywords
@@ -33,25 +37,26 @@ class Paper(object):
     def __init__(self, filename, debug=False):
         """ initialize Paper class """
 
-        self._fname = filename
+        base, fname = os.path.split(os.path.abspath(filename))
+        self._fname = fname
+        self._base = base
         self._debug = debug
 
         self._text = None
         self._exif = pyexif.ExifEditor(filename)
         self._dictTags = self._exif.getDictTags()
-        self._pages = self._exif.getTag('PageCount')
+        self._pages = self._dictTags.get("Page Counts", 0)
 
         self._doi = self._dictTags['DOI'] if 'DOI' in self._dictTags else None
         self._author = self._dictTags['Author'] if 'Author' in self._dictTags else None
         self._title = self._dictTags['Title'] if 'Title' in self._dictTags else None
-        self._keywords = self._dictTags['Keywords'] if 'Keywords' in self._dictTags else None
+        self._keywords = self._dictTags.get('Keywords', [])
         self._abstract = self._dictTags['Description'] if 'Description' in self._dictTags else None
         self._subject = self._dictTags['Subject'] if 'Subject' in self._dictTags else None
         self._pmid = None
         self._pmcid = None
         self._bib = None
 
-        base, fname = os.path.split(os.path.abspath(filename))
         self._year = fname.split('-')[0]
         self._author1 = fname.split('-')[1].replace('_', '-')
         self._journal = ''.join(fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
@@ -60,7 +65,7 @@ class Paper(object):
         if self._doi is None:
             self._doi = self.doi()
             self._bib = self.bibtex()
-        if self._keywords is None:
+        if len(self._keywords) == 0:
             self._keywords = self.keywords()
 
     def __repr__(self):
@@ -149,11 +154,19 @@ class Paper(object):
             else:
                 print("{}".format(t))
 
+    def title(self, text=None, update=True):
+        """ set / get title """
+
+        if text is None:
+            if self._title is not None: return self._title
+
+        if text is not None:
+            if self._title == text: return text
+            if self._title is None: self._title = text
+            if update: self._title = text
+
     def abstract(self, text=None, update=False):
         """ extract or set abstract information """
-
-        if (text is None) and (self._abstract is None):
-            text = input("input new abstract: ")
 
         if (text is None) and (self._abstract is not None):
             return self._abstract
@@ -207,7 +220,7 @@ class Paper(object):
             return self._doi
 
         # check exif
-        exif_doi = self._exif.getTag('DOI')
+        exif_doi = self._dictTags.get('DOI', None)
         if exif_doi is not None:
             self._doi = exif_doi
             if self._debug: print('... read from exif doi')
@@ -222,7 +235,27 @@ class Paper(object):
 
         return self._doi
 
-    def bibtex(self, doi=None):
+    def doi_by_title(self, title=None):
+        """ set doi by title search """
+
+        if title is None:
+            if self._title is None: return
+            else: title = self._title
+
+        res = crossref_query_title(title)
+
+        if res['success']:
+            if self._debug: print('... found doi by title')
+
+            item = res['result']
+            if item['similarity'] > 0.9:
+                self._title = item['crossref_title']
+                self._doi = item['doi']
+                return self._doi
+
+        return None
+
+    def bibtex(self, doi=None, cache=True):
         """ find bibtex information based on doi """
 
         if self._bib is not None:
@@ -230,17 +263,25 @@ class Paper(object):
 
         if self._doi is None:
             self.doi(doi=doi)
+        if self._doi is None:
+            return self._bib
 
-        found, bib = get_bib(self._doi, asDict=True)
+        # check bib file
+        bibfname = self._base + '/.' + self._fname.replace('.pdf', '.bib')
+        if cache and os.path.exists(bibfname):
+            bib = read_bib(bibfname)
+            found = True
+        else:
+            found, bib = get_bib(self._doi, filename=bibfname)
 
         # update information
-        if found:
+        if found and isinstance(bib, dict):
             self._bib = bib
 
             self._author = bib.get('author', None)
             self._title = cleanup_str(bib.get('title', None))
             self._year = bib.get('year', None)
-            self._keywords = bib.get('keywords', None)
+            self._keywords = bib.get('keywords', [])
             if 'journal' in bib:
                 self._journal = cleanup_str(bib['journal'])
             elif 'archiveprefix' in bib:
@@ -255,7 +296,7 @@ class Paper(object):
             self._subject = '{}, ({}), doi: {}'.format(self._journal, self._year, self._doi)
 
         else:
-            print('... not found bib information')
+            if self._debug: print('... not found bib information')
             self._bib = None
 
         return self._bib
@@ -278,7 +319,7 @@ class Paper(object):
         self_kws = self._keywords
 
         # check exif values
-        exif_kws = self._exif.getTag('Keywords')
+        exif_kws = self._dictTags.get('Keywords', [])
 
         # check file text
         text_kws = find_keywords(self.contents(), keywordlist=keywordlist, debug=self._debug)
@@ -288,13 +329,12 @@ class Paper(object):
         if self._debug: print('text: {}'.format(text_kws))
 
         if not update:
-            if self_kws is not None: res.extend(self_kws)
-            if exif_kws is not None: res.extend(exif_kws)
-        if text_kws is not None: res.extend(text_kws)
+            if len(self_kws) > 0: res.extend(self_kws)
+            if len(exif_kws) > 0: res.extend(exif_kws)
+        if len(text_kws) > 0: res.extend(text_kws)
         if userkws: res = kws
 
         self._keywords = sorted(list(set([cleanup_str(w) for w in res])))
-
         return self._keywords
 
     def update_metadata(self, force=False):
@@ -314,17 +354,18 @@ class Paper(object):
         if self._doi is None:
             print('[Filename] {}\n[Title] {}\n[Author] {}\n[Year] {}\n[Journal] {}\n'.format(self._fname, self._title, self._author, self._year, self._journal))
 
-            # ask title
-            user_title = input('input title: (skip) ')
-            if user_title not in ["s", "S", "skip", "Skip"]:
-                self._title = user_title
+            if not force:
+                # ask title
+                user_title = input('input title: (skip) ')
+                if user_title not in ["s", "S", "skip", "Skip"]:
+                    self._title = user_title
 
-            search_result = crossref_query_title(self._title)
-            print('... crossref search found: {}'.format(search_result['success']))
+                search_result = crossref_query_title(self._title)
+                print('... crossref search found: {}'.format(search_result['success']))
 
-            if search_result['result']['similarity'] > 0.9:
-                self._doi = search_result['result']['doi']
-                self._title = search_result['result']['crossref_title']
+                if search_result['result']['similarity'] > 0.9:
+                    self._doi = search_result['result']['doi']
+                    self._title = search_result['result']['crossref_title']
 
             if self._doi is not None: self.bibtex()
 
@@ -338,7 +379,7 @@ class Paper(object):
         """ set meta data using exiftool and check previous values """
 
         # check existance of tag and new values
-        tag_value = self._exif.getTag(tagname)
+        tag_value = self._dictTags.get(tagname)
         tag_exist = tag_value is not None
         if isinstance(value, list):
             value_exist = len(value) > 0
@@ -373,6 +414,7 @@ class Paper(object):
                 print('... exiftool error')
 
         self._exif = pyexif.ExifEditor(self._fname)
+        self._dictTags = self._exif.getDictTags()
 
     def rename(self, force=False):
         """ rename pdf file as specific format YEAR-AUTHOR1LASTNAME-JOURNAL """
@@ -405,7 +447,7 @@ class Paper(object):
         print('... name: {} \nnew name: {}'.format(fname, new_fname))
 
         if force:
-            yesnno = 'y'
+            yesno = 'y'
         else:
             yesno = input("Do you really want to change? (Yes/No)")
 

@@ -97,7 +97,7 @@ def cleanup_str(value):
         res = "".join(c for c in value if c in PERMITTED_CHARS)
         return res
     else:
-        return value
+        return str(value)
 
 
 def find_author1(authors, options='last'):
@@ -181,7 +181,7 @@ def find_keywords(lines, keywordlist=None, debug=False):
     sep_words = [",", ";", ".", "/"]
     ban_words = [""]
 
-    text_kws = None
+    text_kws = []
     found_idx = -1
     found_pos = -1
 
@@ -202,7 +202,7 @@ def find_keywords(lines, keywordlist=None, debug=False):
 
     if found_idx == -1:
         if debug: print('... keywords not found!')
-        return
+        return []
 
     # extract keywords
     t = lines[found_idx]
