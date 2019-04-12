@@ -1,27 +1,30 @@
 """
 py_readpaper.py
+
+
+TODO: 2019/04/11 - make it fast!
 """
 
 import os
-import requests
-
-from arxiv2bib import arxiv2bib
-from pyexif import pyexif
+import string
+import subprocess
 
 # pdf text reader
-from pdf_reader import convertPDF_pdfminer
-from pdf_reader import convertPDF_xpdf
-from pdf_reader import countPDFPages
-from pdf_reader import openPDF
+from pdf_text import convertPDF_pdfminer
+from pdf_text import convertPDF_xpdf
+from pdf_text import cleanup_str
+from pdf_text import find_author1
+from pdf_text import find_keywords
+from pdf_text import find_doi
+
+from pdf_meta import get_bib, get_pmid, crossref_query_title
 
 # summary or keyword generator
 from gensim.summarization import keywords
 from gensim.summarization import summarize
 from rake_nltk import Rake
 
-# bibtex parser
-import bibtexparser
-from bibtexparser.bparser import BibTexParser
+from pyexif import pyexif
 
 
 class Paper(object):
@@ -34,32 +37,31 @@ class Paper(object):
         self._debug = debug
 
         self._text = None
-        self._pages = countPDFPages(filename)
         self._exif = pyexif.ExifEditor(filename)
         self._dictTags = self._exif.getDictTags()
+        self._pages = self._exif.getTag('PageCount')
 
-        try:
-            self._doi = self._exif.getTag('DOI')
-            self._author = self._exif.getTag('Author')
-            self._title = self._exif.getTag('Title')
-            self._keywords = self._exif.getTag('Keywords')
-        except:
-            self._doi = None
-            self._author = None
-            self._title = None
-            self._keywords = None
+        self._doi = self._dictTags['DOI'] if 'DOI' in self._dictTags else None
+        self._author = self._dictTags['Author'] if 'Author' in self._dictTags else None
+        self._title = self._dictTags['Title'] if 'Title' in self._dictTags else None
+        self._keywords = self._dictTags['Keywords'] if 'Keywords' in self._dictTags else None
+        self._abstract = self._dictTags['Description'] if 'Description' in self._dictTags else None
+        self._subject = self._dictTags['Subject'] if 'Subject' in self._dictTags else None
         self._pmid = None
         self._pmcid = None
         self._bib = None
-        self._abstract = None
-        self._journal = None
+
         base, fname = os.path.split(os.path.abspath(filename))
         self._year = fname.split('-')[0]
+        self._author1 = fname.split('-')[1].replace('_', '-')
+        self._journal = ''.join(fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
 
         # automatic extraction
-        self._doi = self.doi()
-        self._bib = self.bibtex()
-        self._keywords = self.keywords()
+        if self._doi is None:
+            self._doi = self.doi()
+            self._bib = self.bibtex()
+        if self._keywords is None:
+            self._keywords = self.keywords()
 
     def __repr__(self):
         """ print out basic informations """
@@ -71,6 +73,7 @@ class Paper(object):
         msg = msg + "- DOI: {}\n".format(self._doi)
         msg = msg + "- Journal: {}\n".format(self._journal)
         msg = msg + "- Keywords: {}\n".format(self._keywords)
+        msg = msg + "- Subject: {}\n".format(self._subject)
         msg = msg + "- Abstract: {}\n".format(self._abstract)
 
         return msg
@@ -146,42 +149,41 @@ class Paper(object):
             else:
                 print("{}".format(t))
 
-    def abstract(self, text=None):
+    def abstract(self, text=None, update=False):
         """ extract or set abstract information """
 
-        if text is None:
+        if (text is None) and (self._abstract is None):
+            text = input("input new abstract: ")
+
+        if (text is None) and (self._abstract is not None):
             return self._abstract
 
-        if self._abstract is None:
+        if (text is not None) and (self._abstract is None):
             self._abstract = text
             return self._abstract
-        else:
-            yesno = input("Will you change [Abstract] from\n\n{}\n\nto\n\n{}\n\n(Yes/No)?".format(self._abstract, text))
+
+        if (text is not None) and (self._abstract is not None):
+            if text == self._abstract:
+                print('... [Abstract]: same value')
+                return self._abstract
+
+            yesno = input("[Abstract] 1 -> 2 \n[1] {}\n[2] {}\nChoose (Yes/No): ".format(self._abstract, text))
             if yesno in ['Yes', 'yes', 'Y', 'y']:
                 self._abstract = text
 
             return self._abstract
 
-    def pmid(self, idstring=""):
+    def pmid(self, idstring):
         """ find doi from pmid, pmcid """
 
-        found = False
+        found, result = get_pmid(idstring, debug=self._debug)
 
-        tool = "py_readpaper"
-        email = "sungcheol.kim78@gmail.com"
-        baseurl = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?tool={}&email={}".format(tool, email)
-        query = "&ids={}&format=json".format(idstring)
-
-        r = requests.get(baseurl + query)
-        result = r.json()
-        found = False if r.status_code != 200 else True
-        if "records" not in result:
-            if self._debug: print('... not found {}'.format(idstring))
+        if not found:
             return
 
-        doi = result["records"][0]["doi"]
-        pmid = result["records"][0]["pmid"]
-        pmcid = result["records"][0]["pmcid"]
+        doi = result.get("doi", None)
+        pmid = result.get("pmid", None)
+        pmcid = result.get("pmcid", None)
 
         if self._debug: print("doi: {}\npmid: {}\npmcid: {}\n".format(doi, pmid, pmcid))
 
@@ -194,6 +196,11 @@ class Paper(object):
     def doi(self, doi=None):
         """ find doi from text or set doi """
 
+        # check argument
+        if doi is not None:
+            self._doi = doi
+            return self._doi
+
         # check self value
         if self._doi is not None:
             if self._debug: print('... read from self._doi')
@@ -204,49 +211,14 @@ class Paper(object):
         if exif_doi is not None:
             self._doi = exif_doi
             if self._debug: print('... read from exif doi')
-            return exif_doi
+            return self._doi
 
-        # check pdf text - read through all lines
-        text_doi = ""
-        for t in self.contents():
-            t = t.strip('\n\r')
-
-            # check doi
-            doi_pos = t.lower().find("doi")
-            if doi_pos > -1:
-                if t[doi_pos:doi_pos+4].lower() == "doi:":
-                    text_doi = t[doi_pos+4:].lstrip()
-                    if text_doi[:3] == "10.": break
-                elif t[doi_pos:doi_pos+4].lower() == "doi ":
-                    text_doi = t[doi_pos+4:].lstrip()
-                    if text_doi[:3] == "10.": break
-                elif t.find("/", doi_pos) > -1:
-                    text_doi = t[t.find("/", doi_pos)+1:]
-                    if text_doi[:3] == "10.": break
-
-            # check arXiv
-            arxiv_pos = t.lower().find("arxiv:")
-            if arxiv_pos > -1:
-                end_pos = t.find(" ", arxiv_pos)
-                text_doi = t[arxiv_pos:end_pos]
-                break
-
-            # 10.XXXX
-            if t[:3].lower() == "10.":
-                text_doi = t[0:t.find(" ")]
-                break
-
-        # check trailing words
-        if text_doi.find(" ") > -1:
-            text_doi = text_doi.split(' ')[0]
-        if text_doi.find("]") > -1:
-            text_doi = text_doi.split(' ')[0]
-
-        if text_doi != "":
-            if self._debug: print('... read from text doi')
+        # check text
+        text_doi = find_doi(self.contents())
+        if text_doi is not None:
             self._doi = text_doi
-
-        if (self._doi == "") and (doi is not None): self._doi = doi
+            if self._debug: print('... read from text doi')
+            return self._doi
 
         return self._doi
 
@@ -264,28 +236,34 @@ class Paper(object):
         # update information
         if found:
             self._bib = bib
-            self._year = bib['year']
-            self._author = bib['author']
-            self._title = bib['title']
+
+            self._author = bib.get('author', None)
+            self._title = cleanup_str(bib.get('title', None))
+            self._year = bib.get('year', None)
+            self._keywords = bib.get('keywords', None)
             if 'journal' in bib:
-                self._journal = bib['journal']
-            if 'archiveprefix' in bib:
+                self._journal = cleanup_str(bib['journal'])
+            elif 'archiveprefix' in bib:
                 self._journal = bib['archiveprefix']
-            if 'booktitle' in bib:
+            elif 'booktitle' in bib:
                 self._journal = bib['booktitle']
+
             if 'abstract' in bib:
                 self._abstract = bib['abstract'].replace('\n', ' ')
                 self._bib['abstract'] = self._abstract
-            if 'keywords' in bib:
-                self._keywords = bib['keywords']
+
+            self._subject = '{}, ({}), doi: {}'.format(self._journal, self._year, self._doi)
+
         else:
             print('... not found bib information')
+            self._bib = None
 
         return self._bib
 
-    def keywords(self, kws=None, keywordlist=None):
+    def keywords(self, kws=None, keywordlist=None, update=False):
         """ find keywords from text """
 
+        # check argument values
         userkws = False
         if kws is not None:
             if not isinstance(kws, list):
@@ -303,69 +281,19 @@ class Paper(object):
         exif_kws = self._exif.getTag('Keywords')
 
         # check file text
-        if keywordlist is None:
-            find_words = ["keywords--", "keywords-", "keywords:", "keywords.", "key words", "keywortlf", "keywords"]
-        else:
-            find_words = keywordlist
-
-        end_words = ["PACS", "DOI"]
-        sep_words = [",", ";", ".", "/"]
-        ban_words = [""]
-        text_kws = None
-
-        for t in self.contents():
-            # remove non-text characters
-            t = t.strip('\n\r').replace("·", "").replace("Æ", "").replace("Á", "")
-
-            # find keyword
-            kw_pos = -1; max_pos = 0
-
-            for i, fw in enumerate(find_words):
-                tmp = t.lower().find(fw)
-                (kw_pos, max_pos) = (kw_pos, i) if kw_pos > tmp else (tmp, max_pos)
-                if tmp > -1: break
-
-            # find end words such as PACS, DOI
-            end_pos = len(t)
-
-            for ew in end_words:
-                tmp = t.find(ew)
-
-                if (tmp > -1):
-                    end_pos = tmp
-
-            # extract keywords
-            if kw_pos > -1:
-                fw_len = len(find_words[max_pos])
-                if self._debug: print('... source: {}'.format(t[kw_pos+fw_len:]))
-
-                sep = ' '
-                sep_pos = 100
-                for s in sep_words:
-                    tmp = t[kw_pos+fw_len:end_pos].find(s)
-
-                    if (tmp > -1) and (tmp < sep_pos):
-                        sep_pos = tmp
-                        sep = s
-
-                text_kws = t[kw_pos+fw_len:end_pos].split(sep)
-                text_kws = [x.strip() for x in text_kws]
-
-                text_kws = set(text_kws) - set(ban_words)
-                if self._debug: print('... text: {} sep: {} kw_pos: {} end_pos: {}'.format(kws, sep, kw_pos, end_pos))
-
-                break
+        text_kws = find_keywords(self.contents(), keywordlist=keywordlist, debug=self._debug)
 
         if self._debug: print('self: {}'.format(self_kws))
         if self._debug: print('exif: {}'.format(exif_kws))
         if self._debug: print('text: {}'.format(text_kws))
 
-        if self_kws is not None: res.extend(self_kws)
-        if exif_kws is not None: res.extend(exif_kws)
+        if not update:
+            if self_kws is not None: res.extend(self_kws)
+            if exif_kws is not None: res.extend(exif_kws)
         if text_kws is not None: res.extend(text_kws)
-        if userkws: res.extend(kws)
+        if userkws: res = kws
 
-        self._keywords = sorted(list(set(res)))
+        self._keywords = sorted(list(set([cleanup_str(w) for w in res])))
 
         return self._keywords
 
@@ -375,28 +303,38 @@ class Paper(object):
         self.set_meta('Author', self._author, force=force)
         self.set_meta('DOI', self._doi, force=force)
         self.set_meta('Title', self._title, force=force)
-        desc = '{}, ({}), doi: {}'.format(self._journal, self._year, self._doi)
-        self.set_meta('Description', desc, force=force)
+        summary = '{}, ({}), doi: {}'.format(self._journal, self._year, self._doi)
+        self.set_meta('Subject', summary, force=force)
+        self.set_meta('Description', self._abstract, force=force)
         self.set_meta('Keywords', self._keywords, force=force)
 
     def update(self, force=False):
         """ clean up all information on pdf file """
 
         if self._doi is None:
-            self.doi()
-            self.bibtex()
-        if self._doi is None:
             print('[Filename] {}\n[Title] {}\n[Author] {}\n[Year] {}\n[Journal] {}\n'.format(self._fname, self._title, self._author, self._year, self._journal))
-            user_doi = input("input doi: (skip)")
-            if user_doi in ["s", "skip", "S"]:
-                return
-            self.pmid(user_doi)
 
-        if self._bib is None: self.bibtex()
+            # ask title
+            user_title = input('input title: (skip) ')
+            if user_title not in ["s", "S", "skip", "Skip"]:
+                self._title = user_title
+
+            search_result = crossref_query_title(self._title)
+            print('... crossref search found: {}'.format(search_result['success']))
+
+            if search_result['result']['similarity'] > 0.9:
+                self._doi = search_result['result']['doi']
+                self._title = search_result['result']['crossref_title']
+
+            if self._doi is not None: self.bibtex()
+
+            # if bib information is not found
+            if self._bib is None: return
+
         self.update_metadata(force=force)
         self.rename(force=force)
 
-    def set_meta(self, tagname, value, force=False):
+    def set_meta(self, tagname, value, force=False, cleanup=True):
         """ set meta data using exiftool and check previous values """
 
         # check existance of tag and new values
@@ -404,8 +342,14 @@ class Paper(object):
         tag_exist = tag_value is not None
         if isinstance(value, list):
             value_exist = len(value) > 0
+            value = set([cleanup_str(v) for v in value]) if cleanup else set(value)
+            tag_value = set(tag_value) if isinstance(tag_value, list) else tag_value
         else:
             value_exist = value != ""
+
+        if isinstance(value, str):
+            value_exist = value != ''
+            value = cleanup_str(value) if cleanup else value
 
         # check similarity between tag and new value
         yesno = 'y'
@@ -414,15 +358,19 @@ class Paper(object):
                 if force:
                     yesno = 'y'
                 else:
-                    yesno = input("Will you change [{}] from \n\n{} to \n\n{}\n\n? (Yes/No)".format(tagname, tag_value, value))
+                    yesno = input("[{}] 1 -> 2 \n[1] {} \n[2] {}\nChoose (Yes/No) ".format(tagname, tag_value, value))
             else:
-                if self._debug: print('... set_meta tag {}: values are same'.format(tagname))
+                if self._debug: print('... update tag [{}]: same values'.format(tagname))
                 yesno = 'n'
 
         # set new tag value
         if (yesno in ["Yes", "yes", "y", "Y"]) and value_exist:
-            print('Set [{}] as [{}]'.format(tagname, value))
-            self._exif.setTag(tagname, value)
+            if self._debug: print('Set [{}] as [{}]'.format(tagname, value))
+            try:
+                value = list(value) if isinstance(value, set) else value
+                self._exif.setTag(tagname, value)
+            except:
+                print('... exiftool error')
 
         self._exif = pyexif.ExifEditor(self._fname)
 
@@ -465,12 +413,8 @@ class Paper(object):
             os.rename(self._fname, base + '/' + new_fname)
             self._fname = base + '/' + new_fname
 
-    def searchtext(self, sstr=None):
+    def searchtext(self, sstr):
         """ search text by search word """
-
-        if sstr is None:
-            print('... put search word')
-            os.exit(1)
 
         found = False
         for i, t in enumerate(self.contents()):
@@ -482,67 +426,16 @@ class Paper(object):
         return found
 
 
-def get_bib(doi, asDict=True):
-    """ get bib from crossref.org and arXiv.org """
+def openPDF(filename):
+    """ open pdf file in macos """
 
-    found = False
-
-    if doi is None:
-        return found, None
-    if doi == "":
-        return found, None
-
-    # for arXiv:XXXX case
-    if doi.lower()[:5] == "arxiv":
-        doi = doi[6:]
-        bib = arxiv2bib([doi])
-        bib = bib[0].bibtex()
-        found = True if len(bib) > 0 else False
-
-    # for crossref
+    # Determines location of file
+    if os.path.isabs(filename):
+        abs_loc = filename
     else:
-        bare_url = "http://api.crossref.org/"
-        url = "{}works/{}/transform/application/x-bibtex"
-        url = url.format(bare_url, doi)
+        cd = os.getcwd()
+        abs_loc = os.path.join(cd, filename)
 
-        r = requests.get(url)
-        found = False if r.status_code != 200 else True
-        bib = str(r.content, "utf-8")
-
-    if not found:
-        return found, None
-
-    if asDict:
-        parser = BibTexParser(common_strings=True)
-        parser.ignore_nonstandard_types = False
-        parser.homogenise_fields = False
-
-        bdb = bibtexparser.loads(bib, parser)
-        entry = bdb.entries[0]
-
-        return found, entry
-    else:
-        return found, bib
-
-
-def find_author1(authors, options='last'):
-    """ find first author's name """
-
-    names = authors.split(' and ')
-
-    n1 = names[0]
-
-    if n1.find(',') > -1:
-        firstname = ' '.join(n1.split(',')[1:])
-        lastname = n1.split(',')[0]
-    else:
-        firstname = ' '.join(n1.split(' ')[:-1])
-        lastname = n1.split(' ')[-1]
-
-    if options == 'last':
-        return lastname
-    elif options == 'first':
-        return firstname
-    else:
-        return firstname + ', ' + lastname
+    cmd = ['Open', abs_loc]
+    output = subprocess.check_output(cmd)
 
