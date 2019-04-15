@@ -11,6 +11,8 @@ sources:
 import os
 import json
 import requests
+import pandas as pd
+
 from urllib.parse import urlencode, quote_plus
 from urllib.error import HTTPError
 
@@ -18,10 +20,18 @@ import bibtexparser
 from bibtexparser.bparser import BibTexParser
 from bibtexparser.bibdatabase import BibDatabase
 from bibtexparser.bwriter import BibTexWriter
+from bibtexparser.customization import convert_to_unicode
 
 from arxiv2bib import arxiv2bib
 
 from Levenshtein import ratio, matching_blocks, editops
+
+EMPTY_RESULT = {
+    "crossref_title": "",
+    "similarity": 0,
+    "doi": ""
+}
+
 
 def get_bib(doi, filename=None):
     """ get bib from crossref.org and arXiv.org """
@@ -71,6 +81,15 @@ def save_bib(bib_dict, filename):
     if bib_dict is None: return
 
     db = BibDatabase()
+    for item in bib_dict:
+        if len(item.get('keywords')) > 0:
+            item['keywords'] = ','.join(item.get('keywords'))
+        else:
+            item['keywords'] = ''
+
+        item['year'] = str(item['year'])
+
+    #print(bib_dict)
     db.entries = bib_dict
     writer = BibTexWriter()
 
@@ -90,6 +109,8 @@ def read_bib(filename):
     with open(filename) as f:
         bibtex_str = f.read()
 
+    print('... read from {}'.format(filename))
+
     return bib_to_dict(bibtex_str)
 
 
@@ -99,11 +120,19 @@ def bib_to_dict(bib_string):
     parser = BibTexParser(common_strings=True)
     parser.ignore_nonstandard_types = False
     parser.homogenise_fields = False
+    parser.customization = convert_to_unicode
 
     bdb = bibtexparser.loads(bib_string, parser)
 
     if len(bdb.entries) > 0:
-        return bdb.entries[0]
+        for i in range(len(bdb.entries)):
+            bdb.entries[i]['year'] = int(bdb.entries[i].get('year', 0))
+
+            if bdb.entries[i].get('keywords', '') != '':
+                bdb.entries[i]['keywords'] = bdb.entries[i].get('keywords').split(',')
+
+        if len(bdb.entries) == 1: return bdb.entries[0]
+        else: return bdb.entries
     else:
         return None
 
@@ -131,14 +160,7 @@ def get_pmid(idstring, debug=False):
     if found:
         return found, result
     else:
-        return foudn, None
-
-
-EMPTY_RESULT = {
-    "crossref_title": "",
-    "similarity": 0,
-    "doi": ""
-}
+        return found, None
 
 # modified from https://github.com/OpenAPC/openapc-de/blob/master/python/import_dois.py
 def crossref_query_title(title):
@@ -166,3 +188,24 @@ def crossref_query_title(title):
         return {"success": True, "result": most_similar}
     except HTTPError as httpe:
         return {"success": False, "result": EMPTY_RESULT, "exception": httpe}
+
+
+def find_bib(bibdb, bib, subset=['doi']):
+    """ find bib item from bib file """
+
+    result_list = []
+
+    for bibitem in bibdb:
+        score = 0
+        for by in subset:
+            if bib.get(by, "1") == bibitem.get(by, "2"):
+                score = score + 1
+                continue
+            elif by != 'year':
+                if ratio(bibitem.get(by, "2").lower(), bib.get(by, "1").lower()) > 0.5:
+                    score = score + 1
+                    continue
+        if score == len(subset):
+            result_list.append(bibitem)
+
+    return result_list
