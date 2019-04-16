@@ -86,7 +86,7 @@ def save_bib(bib_dict, filename):
 
     db = BibDatabase()
     for item in bib_dict:
-        if len(item.get('keywords')) > 0:
+        if isinstance(item.get('keywords'), list) and (len(item.get('keywords')) > 0):
             item['keywords'] = ','.join(item.get('keywords'))
         else:
             item['keywords'] = ''
@@ -104,25 +104,32 @@ def save_bib(bib_dict, filename):
     print('... save to {}'.format(filename))
 
 
-def read_bib(filename, cache=False):
+def read_bib(filename, cache=False, verb=True):
     """ read bibtex file and return bibtexparser object """
 
     if not os.path.exists(filename):
-        print("... no bib file: {}".foramt(filename))
-        return
+        if verb: print("... no bib file: {}".format(filename))
+        return None
 
     if cache:
         fname_csv = filename.replace('.bib', '.csv')
         if os.path.exists(fname_csv):
             p = pd.read_csv(fname_csv, index_col=0)
-            print('... read from {}'.format(fname_csv))
+            if verb: print('... cached from {}'.format(fname_csv))
             return p.to_dict('records')
 
     with open(filename) as f:
         bibtex_str = f.read()
 
-    print('... read from {}'.format(filename))
-    return bib_to_dict(bibtex_str)
+    if verb: print('... read from {}'.format(filename))
+    bib_dict = bib_to_dict(bibtex_str)
+
+    if (bib_dict is not None) and cache:
+        if verb: print('... cached to {}'.format(fname_csv))
+        p = pd.DataFrame.from_dict(bib_dict)
+        p.to_csv(fname_csv)
+
+    return bib_dict
 
 
 def bib_to_dict(bib_string):

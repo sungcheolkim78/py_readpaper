@@ -39,26 +39,41 @@ from pyexif import pyexif
 class Paper(object):
     """ read paper pdf and extract key informations """
 
-    def __init__(self, filename, debug=False):
+    def __init__(self, filename, debug=False, exif=True):
         """ initialize Paper class """
 
         base, fname = os.path.split(os.path.abspath(filename))
         self._fname = fname
         self._base = base
+        self._bibfname = self._base + '/.' + self._fname.replace('.pdf', '.bib')
         self._debug = debug
 
         self._text = None
-        self._exif = pyexif.ExifEditor(os.path.join(base, fname))
-        self._dictTags = self._exif.getDictTags()
-        self._bib = self.exif_to_bib()
+        self._exist_bib = False
 
+        # check filename
         year = fname.split('-')[0]
-        self._update_bibitem('year', new_value=int(year))
-
+        author1 = fname.split('-')[1].replace('_', '-')
         journal = ''.join(fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
-        self._update_bibitem('journal', new_value=journal)
 
-        self._bib['fauthor1'] = fname.split('-')[1].replace('_', '-')
+        # check bib file
+        self._bib = read_bib(self._bibfname, cache=False, verb=debug)
+        if self._bib is not None:
+            self._bib['local-url'] = './'+self._fname
+            self._exist_bib = True
+
+        if not self._exist_bib:
+            if exif:
+                self._exif = pyexif.ExifEditor(os.path.join(base, fname))
+                self._dictTags = self._exif.getDictTags()
+                self._bib = self.exif_to_bib()
+            else:
+                self._bib = {'local-url': './'+self._fname, 'year': int(year), 'author1': author1, 'journal':journal, 'author': author1}
+
+        if self._bib.get('year', 0) == 0: self._bib['year'] = int(year)
+        if self._bib.get('journal', '') == '': self._bib['journal'] = journal
+        if self._bib.get('author','') == '': self._bib['author'] = author1
+        if self._bib.get('author1','') == '': self._bib['author1'] = author1
 
     def __repr__(self):
         """ print out basic informations """
@@ -72,6 +87,7 @@ class Paper(object):
         msg = msg + "- Keywords: {}\n".format(self._bib.get('keywords'))
         msg = msg + "- Subject: {}\n".format(self._bib.get('subject'))
         msg = msg + "- Abstract: {}\n".format(self._bib.get('abstract'))
+        msg = msg + "- Bibfile: {}\n".format(self._exist_bib)
 
         return msg
 
@@ -112,7 +128,7 @@ class Paper(object):
 
         bib_dict = {'author': self._dictTags.get('Author', ''),
                 'author1': author1,
-                'local-url': "./"+self._dictTags.get('FileName', ''),
+                'local-url': "./"+self._fname,
                 'url': self._dictTags.get('URL', ''),
                 'title': self._dictTags.get('Title', ''),
                 'abstract': self._dictTags.get('Description', ''),
@@ -282,10 +298,12 @@ class Paper(object):
                 self._update_bibitem(k, new_value=i)
 
             #self.bib_to_exif(bib)
-            save_bib([self._bib], bibfname)
         else:
             if self._debug:
                 print('... not found bib information')
+
+        save_bib([self._bib], bibfname)
+        self._exist_bib = True
 
         return self._bib
 
@@ -459,6 +477,7 @@ class Paper(object):
             self.download_bib()
 
         self.bib_to_exif(self._bib, force=force)
+
         self.rename()
 
     def interactive_update(self):
@@ -485,6 +504,7 @@ class Paper(object):
 
         if yesno in ['yes', 'y', 'Yes', 'Y']:
             self.update(force=True)
+
 
     def rename(self):
         """ rename pdf file as specific format YEAR-AUTHOR1LASTNAME-JOURNAL """
@@ -546,11 +566,15 @@ class Paper(object):
         # check similarity between tag and new value
         yesno = 'y'
         if value_exist:
-            if tag_value == '': yesno = 'y'
+            if tag_value in ['', 'None', 'nan']:
+                yesno = 'y'
             elif tag_value != value:
-                if force: yesno = 'y'
+                if force:
+                    yesno = 'y'
                 else:
                     yesno = input("[{}] 1 -> 2 \n[1] {} \n[2] {}\nChoose (Yes/No) ".format(tagname, tag_value, value))
+            elif value in ['None', 'nan']:
+                yesno = 'n'
             else:
                 if self._debug: print('... update tag [{}]: same values'.format(tagname))
                 yesno = 'n'
@@ -578,12 +602,21 @@ class Paper(object):
                 old_value = int(old_value)
                 new_value = int(new_value)
             if colname == 'doi':
-                old_value = old_value.lower()
-                new_value = new_value.lower()
+                old_value = str(old_value).lower()
+                new_value = str(new_value).lower()
                 if old_value == new_value.replace("doi:", ""):
                     old_value = "doi:"+old_value
                 if new_value == old_value.replace("doi:", ""):
                     new_value = "doi:"+new_value
+            if colname == 'keywords':
+                if (not isinstance(old_value, list)) and isinstance(new_value, list):
+                    self._bib[colname] = new_value
+                    return new_value
+                if (not isinstance(new_value, list)) and (not isinstance(new_value, list)):
+                    self._bib[colname] = []
+                    return self._bib[colname]
+                if isinstance(new_value, list) and (not isinstance(new_value, list)):
+                    return self._bib[colname]
 
             if old_value == new_value:
                 if self._debug: print('... [{}]: same value {}'.format(colname, new_value))
