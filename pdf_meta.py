@@ -47,9 +47,13 @@ def get_bib(doi, filename=None):
     # for arXiv:XXXX case
     if doi.lower()[:5] == "arxiv":
         doi = doi[6:]
-        bib = arxiv2bib([doi])
-        bib = bib[0].bibtex()
-        found = True if len(bib) > 0 else False
+        bib_object = arxiv2bib([doi])
+        bib = bib_object[0].bibtex()
+        if len(bib) > 0:
+            found = True
+            bib = bib_to_dict(bib)
+        else:
+            found = False
 
     # for crossref
     else:
@@ -87,7 +91,8 @@ def save_bib(bib_dict, filename):
         else:
             item['keywords'] = ''
 
-        item['year'] = str(item['year'])
+        for k in item.keys():
+            item[k] = str(item[k])
 
     #print(bib_dict)
     db.entries = bib_dict
@@ -99,18 +104,24 @@ def save_bib(bib_dict, filename):
     print('... save to {}'.format(filename))
 
 
-def read_bib(filename):
+def read_bib(filename, cache=False):
     """ read bibtex file and return bibtexparser object """
 
     if not os.path.exists(filename):
         print("... no bib file: {}".foramt(filename))
         return
 
+    if cache:
+        fname_csv = filename.replace('.bib', '.csv')
+        if os.path.exists(fname_csv):
+            p = pd.read_csv(fname_csv, index_col=0)
+            print('... read from {}'.format(fname_csv))
+            return p.to_dict('records')
+
     with open(filename) as f:
         bibtex_str = f.read()
 
     print('... read from {}'.format(filename))
-
     return bib_to_dict(bibtex_str)
 
 
@@ -190,7 +201,7 @@ def crossref_query_title(title):
         return {"success": False, "result": EMPTY_RESULT, "exception": httpe}
 
 
-def find_bib(bibdb, bib, subset=['doi']):
+def find_bib(bibdb, bib, subset=['doi'], threshold=0.6):
     """ find bib item from bib file """
 
     result_list = []
@@ -202,10 +213,30 @@ def find_bib(bibdb, bib, subset=['doi']):
                 score = score + 1
                 continue
             elif by != 'year':
-                if ratio(bibitem.get(by, "2").lower(), bib.get(by, "1").lower()) > 0.5:
+
+                # TODO add author1 exception
+                #if by == 'author1':
+
+                old_text = bibitem.get(by, "2")
+                new_text = bib.get(by, "1")
+                if ratio(str(old_text).lower(), str(new_text).lower()) > threshold:
                     score = score + 1
                     continue
         if score == len(subset):
             result_list.append(bibitem)
 
     return result_list
+
+
+def print_bib(bibitem, form='short'):
+    """ print bib item in various form """
+
+    if form == 'short':
+        col_list = ['year', 'author', 'title', 'journal', 'doi', 'local-url']
+    elif form == 'normal':
+        col_list = ['local-url', 'title', 'author', 'year', 'doi', 'journal', 'keywords', 'subject', 'abstract']
+    elif form == 'full':
+        col_list = bibitem.keys()
+
+    for c in col_list:
+        print("[{}]: {}".format(c, bibitem.get(c)))

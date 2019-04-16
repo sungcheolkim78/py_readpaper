@@ -26,6 +26,7 @@ from pdf_meta import crossref_query_title
 from pdf_meta import find_bib
 from pdf_meta import read_bib
 from pdf_meta import save_bib
+from pdf_meta import print_bib
 
 # summary or keyword generator
 from gensim.summarization import keywords
@@ -78,6 +79,7 @@ class Paper(object):
         """ open in mac """
 
         openPDF(os.path.join(self._base, self._fname))
+        self.interactive_update()
 
     # metadata related functions
 
@@ -136,7 +138,10 @@ class Paper(object):
         doi = ''
         if bibdict.get('pmid', '') != '': doi = 'pmid:{}'.format(bibdict.get('pmid'))
         if bibdict.get('pmcid', '') != '': doi = 'pmcid:{}'.format(bibdict.get('pmcid'))
-        if bibdict.get('doi', '') != '': doi = 'doi:{}'.format(bibdict.get('doi'))
+        if bibdict.get('doi', '') != '':
+            doi = bibdict.get('doi')
+            if doi.lower().find('arxiv') > -1: doi = doi
+            else: doi = "doi:"+doi
 
         if doi != '': self._set_meta('DOI', doi, force=force)
 
@@ -164,6 +169,12 @@ class Paper(object):
 
         if isinstance(text, int):
             text = self.contents()[text]
+        if isinstance(text, list):
+            texts = [ self.contents()[i] for i in text ]
+            text = ' '.join(texts)
+
+        if text is not None:
+            text = text.replace('\n', ' ')
             text = text.replace("ABSTRACT", "").strip()
 
         return self._update_bibitem('abstract', new_value=text)
@@ -262,6 +273,7 @@ class Paper(object):
             bib = read_bib(bibfname)
             found = True
         else:
+            print('... download bib information')
             found, bib = get_bib(self.doi(), filename=bibfname)
 
         # update information
@@ -313,30 +325,39 @@ class Paper(object):
 
         return ''
 
-    def search_bib(self, bibdb=None, subset=['year', 'journal']):
+    def search_bib(self, bibdb=None, subset=['year', 'journal'], threshold=0.6):
         """ using bib item list find bib information """
 
+        temp = []
         if bibdb is None:
-            bibdb = []
             biblist = glob.glob('*.bib')
+            if len(biblist) == 0:
+                print('... no bib file')
+                return
+
             for f in biblist:
-                a = read_bib(f)
+                a = read_bib(f, cache=True)
                 if isinstance(a, list):
-                    bibdb = bibdb.extend(a)
+                    temp.extend(a)
                 else:
-                    bibdb = bibdb.append(a)
+                    temp.append(a)
+
+            bibdb = temp
 
         if bibdb is not None:
-            res = find_bib(bibdb, self.bib(), subset=subset)
+            res = find_bib(bibdb, self.bib(), subset=subset, threshold=threshold)
             if len(res) == 0:
-                print('... not found')
+                res = find_bib(bibdb, self.bib(), subset=['year', 'author'], threshold=threshold)
+                if len(res) == 0:
+                    print('... not found')
             if len(res) == 1:
                 print('... set by found')
                 self.bib(bib=res[0])
             if len(res) > 1:
-                print('... multiple found: {}'.format(len(res))
+                print('... multiple found: {}'.format(len(res)))
                 for i, item in enumerate(res):
-                    print("[{}] {}\n".format(i, item))
+                    print("\n[{}] ---------".format(i))
+                    print_bib(item, form='short')
 
                 number = input("Choose number (or quit): ")
                 if number in ['quit', 'q', 'Q']:
@@ -440,6 +461,31 @@ class Paper(object):
         self.bib_to_exif(self._bib, force=force)
         self.rename()
 
+    def interactive_update(self):
+        """ update paper information interactively """
+
+        print_bib(self._bib)
+
+        # confirm search
+        yesno = input("[CF] Want to serach bib (bibdb/doi/title/skip/quit): ")
+        if yesno in ["b", "B", "bibdb"]:
+            self.search_bib(bibdb=None, threshold=0.6)
+        elif yesno in ["t", "title"]:
+            self.doi(checktitle=True)
+        elif yesno in ["d", "D", "doi"]:
+            self.download_bib(cache=False)
+        elif yesno in ['q', 'Q']:
+            return
+
+        # confirm update
+        if yesno not in ["s", "S", "skip"]:
+            yesno = input("[CF] Continue update (yes/no/quit): ")
+        else:
+            yesno = 'y'
+
+        if yesno in ['yes', 'y', 'Yes', 'Y']:
+            self.update(force=True)
+
     def rename(self):
         """ rename pdf file as specific format YEAR-AUTHOR1LASTNAME-JOURNAL """
 
@@ -465,8 +511,18 @@ class Paper(object):
 
         if yesno in ["Yes", "y", "Y", "yes"]:
             os.rename(os.path.join(self._base, self._fname), os.path.join(self._base, new_fname))
+
+            old_bibfname = self._base + '/.' + self._fname.replace('.pdf', '.bib')
             self._fname = new_fname
-            self._update_bibitem("local-url", new_value="./" + new_fname)
+            new_bibfname = self._base + '/.' + self._fname.replace('.pdf', '.bib')
+
+            #self._update_bibitem("local-url", new_value="./" + new_fname)
+
+            self._bib["local-url"] = "./" + new_fname
+            if os.path.exists(old_bibfname):
+                print('... move bib file: {}'.format(new_bibfname))
+                os.rename(old_bibfname, new_bibfname)
+
 
     def _set_meta(self, tagname, value, force=False, cleanup=True):
         """ set meta data using exiftool and check previous values """
@@ -500,7 +556,7 @@ class Paper(object):
                 yesno = 'n'
 
         # set new tag value
-        if (yesno in ["Yes", "yes", "y", "Y"]) and value_exist:
+        if (yesno in ["Yes", "yes", "y", "Y", "2"]) and value_exist:
             try:
                 value = list(value) if isinstance(value, set) else value
                 self._exif.setTag(tagname, value)
@@ -514,27 +570,34 @@ class Paper(object):
     def _update_bibitem(self, colname, new_value=None):
         """ set / get bib item """
 
-        #if colname == "ID": return self._bib.get(colname, '')
+        if colname == "ID": return self._bib.get(colname, '')
 
         if (new_value is not None):
             old_value = self._bib.get(colname, '')
             if colname == 'year':
                 old_value = int(old_value)
                 new_value = int(new_value)
+            if colname == 'doi':
+                old_value = old_value.lower()
+                new_value = new_value.lower()
+                if old_value == new_value.replace("doi:", ""):
+                    old_value = "doi:"+old_value
+                if new_value == old_value.replace("doi:", ""):
+                    new_value = "doi:"+new_value
 
             if old_value == new_value:
                 if self._debug: print('... [{}]: same value {}'.format(colname, new_value))
                 return new_value
 
-            if (old_value == 'None') or (old_value == ''):
+            if old_value in ['None', '', 0, 'nan']:
                 self._bib[colname] = new_value
                 return new_value
 
-            if (new_value == 'None') or (new_value == ''):
+            if new_value in ['None', '', 'nan']:
                 return old_value
 
             yesno = input("[{}] 1 -> 2 \n[1] {}\n[2] {}\nChoose (Yes/No): ".format(colname, old_value, new_value))
-            if yesno in ['Yes', 'yes', 'Y', 'y']:
+            if yesno in ['Yes', 'yes', 'Y', 'y', '2']:
                 self._bib[colname] = new_value
 
         return self._bib.get(colname, '')
