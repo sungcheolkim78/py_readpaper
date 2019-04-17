@@ -29,8 +29,7 @@ from pdf_meta import save_bib
 from pdf_meta import print_bib
 
 # summary or keyword generator
-from gensim.summarization import keywords
-from gensim.summarization import summarize
+import gensim.summarization as gs
 from rake_nltk import Rake
 
 from pyexif import pyexif
@@ -62,13 +61,12 @@ class Paper(object):
             self._bib['local-url'] = './'+self._fname
             self._exist_bib = True
 
-        if not self._exist_bib:
-            if exif:
-                self._exif = pyexif.ExifEditor(os.path.join(base, fname))
-                self._dictTags = self._exif.getDictTags()
-                self._bib = self.exif_to_bib()
-            else:
-                self._bib = {'local-url': './'+self._fname, 'year': int(year), 'author1': author1, 'journal':journal, 'author': author1}
+        if exif:
+            self._exif = pyexif.ExifEditor(os.path.join(base, fname))
+            self._dictTags = self._exif.getDictTags()
+            self._bib = self.exif_to_bib()
+        else:
+            self._bib = {'local-url': './'+self._fname, 'year': int(year), 'author1': author1, 'journal':journal, 'author': author1}
 
         if self._bib.get('year', 0) == 0: self._bib['year'] = int(year)
         if self._bib.get('journal', '') == '': self._bib['journal'] = journal
@@ -319,6 +317,7 @@ class Paper(object):
         if result.get('pmid', '') != '': self._update_bibitem('pmid', new_value=result.get('pmid'))
         if result.get('pmcid', '') != '': self._update_bibitem('pmcid', new_value=result.get('pmcid'))
 
+        doi, pmid, pmcid = self._bib.get('doi'), self._bib.get('pmid'), self._bib.get('pmcid')
         if self._debug: print("doi: {}\npmid: {}\npmcid: {}\n".format(doi, pmid, pmcid))
 
         return doi, pmid, pmcid
@@ -343,7 +342,7 @@ class Paper(object):
 
         return ''
 
-    def search_bib(self, bibdb=None, subset=['year', 'journal'], threshold=0.6):
+    def search_bib(self, bibdb=None, subset=['year', 'journal', 'author'], threshold=0.6):
         """ using bib item list find bib information """
 
         temp = []
@@ -364,13 +363,17 @@ class Paper(object):
 
         if bibdb is not None:
             res = find_bib(bibdb, self.bib(), subset=subset, threshold=threshold)
+
             if len(res) == 0:
-                res = find_bib(bibdb, self.bib(), subset=['year', 'author'], threshold=threshold)
+                res = find_bib(bibdb, self.bib(), subset=['year', 'journal'], threshold=threshold)
+
                 if len(res) == 0:
                     print('... not found')
+
             if len(res) == 1:
                 print('... set by found')
                 self.bib(bib=res[0])
+
             if len(res) > 1:
                 print('... multiple found: {}'.format(len(res)))
                 for i, item in enumerate(res):
@@ -393,7 +396,7 @@ class Paper(object):
             texts = [ x.strip() for x in texts ]
             texts = ' '.join(texts)
 
-        res = keywords(texts, words=words, lemmatize=True, split=True)
+        res = gs.keywords(texts, words=words, lemmatize=True, split=True)
         return res
 
     def keywords_rake_nltk(self, texts=None, words=10, **kwargs):
@@ -487,24 +490,23 @@ class Paper(object):
 
         # confirm search
         yesno = input("[CF] Want to serach bib (bibdb/doi/title/skip/quit): ")
-        if yesno in ["b", "B", "bibdb"]:
+        if yesno in ['b', 'B', 'bibdb', '1']:
             self.search_bib(bibdb=None, threshold=0.6)
-        elif yesno in ["t", "title"]:
-            self.doi(checktitle=True)
-        elif yesno in ["d", "D", "doi"]:
+        elif yesno in ['d', 'D', "doi", '2']:
             self.download_bib(cache=False)
-        elif yesno in ['q', 'Q']:
+        elif yesno in ['t', 'title', '3']:
+            self.doi(checktitle=True)
+        elif yesno in ['q', 'Q', '5']:
             return
 
         # confirm update
         if yesno not in ["s", "S", "skip"]:
-            yesno = input("[CF] Continue update (yes/no/quit): ")
+            yesno = input("[CF] Continue update (yes/no): ")
         else:
             yesno = 'y'
 
-        if yesno in ['yes', 'y', 'Yes', 'Y']:
+        if yesno in ['yes', 'y', 'Yes', 'Y', '1']:
             self.update(force=True)
-
 
     def rename(self):
         """ rename pdf file as specific format YEAR-AUTHOR1LASTNAME-JOURNAL """
@@ -525,11 +527,11 @@ class Paper(object):
             if self._debug: print('... same name: {}'.format(self._fname))
             return
 
-        print('... name: {} \nnew name: {}'.format(self._fname, new_fname))
+        print('... [1] old name: {} \n... [2] new name: {}'.format(self._fname, new_fname))
 
         yesno = input("Do you really want to change? (Yes/No)")
 
-        if yesno in ["Yes", "y", "Y", "yes"]:
+        if yesno in ['Yes', 'y', 'Y', 'yes', '2']:
             os.rename(os.path.join(self._base, self._fname), os.path.join(self._base, new_fname))
 
             old_bibfname = self._base + '/.' + self._fname.replace('.pdf', '.bib')
@@ -538,11 +540,10 @@ class Paper(object):
 
             #self._update_bibitem("local-url", new_value="./" + new_fname)
 
-            self._bib["local-url"] = "./" + new_fname
+            self._bib['local-url'] = "./" + new_fname
             if os.path.exists(old_bibfname):
                 print('... move bib file: {}'.format(new_bibfname))
                 os.rename(old_bibfname, new_bibfname)
-
 
     def _set_meta(self, tagname, value, force=False, cleanup=True):
         """ set meta data using exiftool and check previous values """
@@ -572,7 +573,7 @@ class Paper(object):
                 if force:
                     yesno = 'y'
                 else:
-                    yesno = input("[{}] 1 -> 2 \n[1] {} \n[2] {}\nChoose (Yes/No) ".format(tagname, tag_value, value))
+                    yesno = input('[{}] 1 -> 2 \n[1] {} \n[2] {}\nChoose (1/2) '.format(tagname, tag_value, value))
             elif value in ['None', 'nan']:
                 yesno = 'n'
             else:
@@ -580,7 +581,7 @@ class Paper(object):
                 yesno = 'n'
 
         # set new tag value
-        if (yesno in ["Yes", "yes", "y", "Y", "2"]) and value_exist:
+        if (yesno in ['Yes', 'yes', 'y', 'Y', '2']) and value_exist:
             try:
                 value = list(value) if isinstance(value, set) else value
                 self._exif.setTag(tagname, value)
@@ -595,28 +596,34 @@ class Paper(object):
         """ set / get bib item """
 
         if colname == "ID": return self._bib.get(colname, '')
+        if colname == 'url':
+            if new_value is not None: self._bib[colname] = new_value
+        if colname == 'keywords':
+            if isinstance(new_value, list):
+                self._bib[colname] = new_value
+                return new_value
+            else:
+                if isinstance(self._bib.get(colname), list):
+                    return self._bib[colname]
+                else:
+                    self._bib[colname] = []
+                    return self._bib[colname]
 
         if (new_value is not None):
-            old_value = self._bib.get(colname, '')
+            old_value = str(self._bib.get(colname, ''))
+            new_value = str(new_value)
+
             if colname == 'year':
                 old_value = int(old_value)
                 new_value = int(new_value)
+
             if colname == 'doi':
-                old_value = str(old_value).lower()
-                new_value = str(new_value).lower()
+                old_value = old_value.lower()
+                new_value = new_value.lower()
                 if old_value == new_value.replace("doi:", ""):
                     old_value = "doi:"+old_value
                 if new_value == old_value.replace("doi:", ""):
                     new_value = "doi:"+new_value
-            if colname == 'keywords':
-                if (not isinstance(old_value, list)) and isinstance(new_value, list):
-                    self._bib[colname] = new_value
-                    return new_value
-                if (not isinstance(new_value, list)) and (not isinstance(new_value, list)):
-                    self._bib[colname] = []
-                    return self._bib[colname]
-                if isinstance(new_value, list) and (not isinstance(new_value, list)):
-                    return self._bib[colname]
 
             if old_value == new_value:
                 if self._debug: print('... [{}]: same value {}'.format(colname, new_value))
@@ -629,12 +636,17 @@ class Paper(object):
             if new_value in ['None', '', 'nan']:
                 return old_value
 
-            yesno = input("[{}] 1 -> 2 \n[1] {}\n[2] {}\nChoose (Yes/No): ".format(colname, old_value, new_value))
+            yesno = input("[{}] \n[1] {}\n[2] {}\nChoose (1/2): ".format(colname, old_value, new_value))
             if yesno in ['Yes', 'yes', 'Y', 'y', '2']:
                 self._bib[colname] = new_value
 
         return self._bib.get(colname, '')
 
+    def save_bib(self):
+        """ save bib file """
+
+        save_bib([self._bib], self._bibfname)
+        self._exist_bib = True
 
 def openPDF(filename):
     """ open pdf file in macos """

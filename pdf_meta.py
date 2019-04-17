@@ -221,14 +221,23 @@ def find_bib(bibdb, bib, subset=['doi'], threshold=0.6):
                 continue
             elif by != 'year':
 
-                # TODO add author1 exception
-                #if by == 'author1':
+                # add author1 check
+                if by == 'author':
+                    author1 = str(bib.get('author', '1')).lower()
+                    author2 = str(bibitem.get('author', '2')).lower()
+                    author1s = str(bib.get('author1', '1')).lower()
+                    author2s = str(bibitem.get('author1', '2')).lower()
+                    if author1.find(author2s) > -1: score = score + 1
+                    if author2.find(author1s) > -1: score = score + 1
+                    continue
 
-                old_text = bibitem.get(by, "2")
-                new_text = bib.get(by, "1")
-                if ratio(str(old_text).lower(), str(new_text).lower()) > threshold:
+                # other item check
+                old_text = str(bibitem.get(by, "2")).lower()
+                new_text = str(bib.get(by, "1")).lower()
+                if ratio(old_text, new_text) > threshold:
                     score = score + 1
                     continue
+
         if score == len(subset):
             result_list.append(bibitem)
 
