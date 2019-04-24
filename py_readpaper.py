@@ -65,7 +65,8 @@ class Paper(object):
             self._exif = pyexif.ExifEditor(os.path.join(base, fname))
             self._dictTags = self._exif.getDictTags()
             self._bib = self.exif_to_bib()
-        else:
+
+        if self._bib is None:
             self._bib = {'local-url': './'+self._fname, 'year': int(year), 'author1': author1, 'journal':journal, 'author': author1}
 
         if self._bib.get('year', 0) == 0: self._bib['year'] = int(year)
@@ -142,7 +143,9 @@ class Paper(object):
                 }
 
         for k, i in bib_dict.items():
-            if i == 'None': bib_dict[k] = ''
+            if self._bib is not None:
+                if i in ['None', '']:
+                    bib_dict[k] = self._bib.get(k, '')
 
         return bib_dict
 
@@ -522,6 +525,10 @@ class Paper(object):
             return
 
         new_fname = "{}-{}-{}.pdf".format(year, author.replace('-', '_'), journal.replace(' ', '_'))
+        #count = 1
+        #while os.path.exists(os.path.join(self._base, new_fname)):
+        #    new_fname = new_fname.replace(".pdf", "-{}.pdf".format(count))
+        #    count = count + 1
 
         if self._fname == new_fname:
             if self._debug: print('... same name: {}'.format(self._fname))
@@ -614,8 +621,12 @@ class Paper(object):
             new_value = str(new_value)
 
             if colname == 'year':
-                old_value = int(old_value)
-                new_value = int(new_value)
+                if isinstance(old_value, str):
+                    if old_value.find('.') > -1: old_value = int(old_value.split('.')[0])
+                    else: old_value = int(old_value)
+                if isinstance(new_value, str):
+                    if new_value.find('.') > -1: new_value = int(new_value.split('.')[0])
+                    else: new_value = int(new_value)
 
             if colname == 'doi':
                 old_value = old_value.lower()
@@ -633,7 +644,7 @@ class Paper(object):
                 self._bib[colname] = new_value
                 return new_value
 
-            if new_value in ['None', '', 'nan']:
+            if new_value in ['None', '', 'nan', 0]:
                 return old_value
 
             yesno = input("[{}] \n[1] {}\n[2] {}\nChoose (1/2): ".format(colname, old_value, new_value))

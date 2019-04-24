@@ -111,12 +111,12 @@ def read_bib(filename, cache=False, verb=True):
         if verb: print("... no bib file: {}".format(filename))
         return None
 
-    if cache:
-        fname_csv = filename.replace('.bib', '.csv')
-        if os.path.exists(fname_csv):
-            p = pd.read_csv(fname_csv, index_col=0)
-            if verb: print('... cached from {}'.format(fname_csv))
-            return p.to_dict('records')
+    fname_csv = filename.replace('.bib', '.csv')
+
+    if cache and (os.path.exists(fname_csv)):
+        p = pd.read_csv(fname_csv, index_col=0)
+        if verb: print('... cached from {}'.format(fname_csv))
+        return p.to_dict('records')
 
     with open(filename) as f:
         bibtex_str = f.read()
@@ -144,8 +144,6 @@ def bib_to_dict(bib_string):
 
     if len(bdb.entries) > 0:
         for i in range(len(bdb.entries)):
-            bdb.entries[i]['year'] = int(bdb.entries[i].get('year', 0))
-
             if bdb.entries[i].get('keywords', '') != '':
                 bdb.entries[i]['keywords'] = bdb.entries[i].get('keywords').split(',')
 
