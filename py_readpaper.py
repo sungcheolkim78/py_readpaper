@@ -5,6 +5,7 @@ holder for Paper object and related functions
 
 TODO: 2019/04/11 - make it fast!
 TODO: 2019/04/14 - make clear concept layer
+TODO: 2019/05/06 - make faster
 """
 
 import os
@@ -41,19 +42,18 @@ class Paper(object):
     def __init__(self, filename, debug=False, exif=True):
         """ initialize Paper class """
 
-        base, fname = os.path.split(os.path.abspath(filename))
-        self._fname = fname
-        self._base = base
+        self._base, self._fname = os.path.split(os.path.abspath(filename))
         self._bibfname = self._base + '/.' + self._fname.replace('.pdf', '.bib')
+        self._txtfname = self._base + '/.' + self._fname.replace('.pdf', '.txt')
         self._debug = debug
 
         self._text = None
         self._exist_bib = False
 
         # check filename
-        year = fname.split('-')[0]
-        author1 = fname.split('-')[1].replace('_', '-')
-        journal = ''.join(fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
+        year = self._fname.split('-')[0]
+        author1 = self._fname.split('-')[1].replace('_', '-')
+        journal = ''.join(self._fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
 
         # check bib file
         self._bib = read_bib(self._bibfname, cache=False, verb=debug)
@@ -62,7 +62,7 @@ class Paper(object):
             self._exist_bib = True
 
         if exif:
-            self._exif = pyexif.ExifEditor(os.path.join(base, fname))
+            self._exif = pyexif.ExifEditor(os.path.join(self._base, self._fname))
             self._dictTags = self._exif.getDictTags()
             self._bib = self.exif_to_bib()
 
@@ -417,17 +417,21 @@ class Paper(object):
         res = r.get_ranked_phrases()
         return res[:words]
 
-    def contents(self, sentenceLength=10, split=True, maxpages=-1, clean=False, method='xpdf'):
+    def contents(self, sentenceLength=10, split=True, maxpages=-1, clean=False, method='xpdf', update=True):
         """ extract only contents or filter out short sentences """
 
         if (self._text is None) or (maxpages > -1):
             if method == 'xpdf':
-                self._text = convertPDF_xpdf(os.path.join(self._base, self._fname), maxpages=maxpages, update=True)
+                self._text = convertPDF_xpdf(os.path.join(self._base, self._fname), maxpages=maxpages, update=update)
             else:
                 self._text = convertPDF_pdfminer(os.path.join(self._base, self._fname), maxpages=maxpages)
 
+        if (len(self._text) < 2) or (self._text is None):
+            print('... can not read pdf: {}'.format(self._fname))
+            self._text = self.__repr__().split('\n')
+
         if clean:
-            cleanlist = list("()\.,?!@#$%^&")
+            cleanlist = list("()\.,?!@#$%^&[]")
         else:
             cleanlist = ['']
 

@@ -63,14 +63,14 @@ def convertPDF_xpdf(pdf_path, codec='utf-8', maxpages=0, update=False):
     #print('... save to {}'.format(txt_path))
 
     if (not update) and os.path.exists(txt_path):
-        text = open(txt_path, 'r', encoding=codec).readlines()
+        text = open(txt_path, 'r').readlines()
         return text
 
     try:
         # use pdftotext to extract text from pdf
         # -clip : separate clipped text
         subprocess.call(['pdftotext', '-l', str(maxpages), '-clip', '-enc', codec.upper(), pdf_path, txt_path])
-        text = open(txt_path, 'r', encoding=codec).readlines()
+        text = open(txt_path, 'r').readlines()
         return text
 
     except:
