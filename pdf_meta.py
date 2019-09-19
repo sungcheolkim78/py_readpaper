@@ -26,6 +26,8 @@ from arxiv2bib import arxiv2bib
 
 from Levenshtein import ratio, matching_blocks, editops
 
+from pdf_text import find_author1
+
 EMPTY_RESULT = {
     "crossref_title": "",
     "similarity": 0,
@@ -107,11 +109,11 @@ def save_bib(bib_dict, filename):
 def read_bib(filename, cache=False, verb=True):
     """ read bibtex file and return bibtexparser object """
 
-    if not os.path.exists(filename):
+    fname_csv = filename.replace('.bib', '.csv')
+
+    if (not os.path.exists(filename)) and (not os.path.exists(fname_csv)):
         if verb: print("... no bib file: {}".format(filename))
         return None
-
-    fname_csv = filename.replace('.bib', '.csv')
 
     if cache and (os.path.exists(fname_csv)):
         p = pd.read_csv(fname_csv, index_col=0)
@@ -206,7 +208,7 @@ def crossref_query_title(title):
         return {"success": False, "result": EMPTY_RESULT, "exception": httpe}
 
 
-def find_bib(bibdb, bib, subset=['doi'], threshold=0.6):
+def find_bib(bibdb, bib, subset=['doi'], threshold=0.6, debug=False):
     """ find bib item from bib file """
 
     result_list = []
@@ -215,6 +217,7 @@ def find_bib(bibdb, bib, subset=['doi'], threshold=0.6):
         score = 0
         for by in subset:
             if bib.get(by, "1") == bibitem.get(by, "2"):
+                if debug: print('... {} is same'.format(by))
                 score = score + 1
                 continue
             elif by != 'year':
@@ -225,14 +228,18 @@ def find_bib(bibdb, bib, subset=['doi'], threshold=0.6):
                     author2 = str(bibitem.get('author', '2')).lower()
                     author1s = str(bib.get('author1', '1')).lower()
                     author2s = str(bibitem.get('author1', '2')).lower()
+                    if author2s == '2': author2s = find_author1(author2)
                     if author1.find(author2s) > -1: score = score + 1
                     if author2.find(author1s) > -1: score = score + 1
+                    if debug: print('... [{}] compare {} | {}'.format(by, author1, author2))
+                    if debug: print('... [{}] compare {} | {}'.format(by, author1s, author2s))
                     continue
 
                 # other item check
                 old_text = str(bibitem.get(by, "2")).lower()
                 new_text = str(bib.get(by, "1")).lower()
                 if ratio(old_text, new_text) > threshold:
+                    if debug: print('... [{}] {} is similar to {}'.format(by, old_text, new_text))
                     score = score + 1
                     continue
 

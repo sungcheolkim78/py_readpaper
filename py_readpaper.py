@@ -90,11 +90,11 @@ class Paper(object):
 
         return msg
 
-    def open(self):
+    def open(self, update=False):
         """ open in mac """
 
         openPDF(os.path.join(self._base, self._fname))
-        self.interactive_update()
+        if update: self.interactive_update()
 
     # metadata related functions
 
@@ -213,6 +213,12 @@ class Paper(object):
             for k, i in bib.items():
                 self._update_bibitem(k, new_value=i)
             return self._bib
+
+    def bibtex(self):
+        """ print bibtex item """
+
+        with open(self._bibfname, "r") as f:
+            print(f.read())
 
     def doi(self, doi=None, checktitle=False):
         """ find doi from text or set doi """
@@ -351,6 +357,9 @@ class Paper(object):
         temp = []
         if bibdb is None:
             biblist = glob.glob('*.bib')
+            if isinstance(bibdb, str):
+                biblist.append(bibdb)
+
             if len(biblist) == 0:
                 print('... no bib file')
                 return
@@ -365,10 +374,10 @@ class Paper(object):
             bibdb = temp
 
         if bibdb is not None:
-            res = find_bib(bibdb, self.bib(), subset=subset, threshold=threshold)
+            res = find_bib(bibdb, self.bib(), subset=subset, threshold=threshold, debug=self._debug)
 
             if len(res) == 0:
-                res = find_bib(bibdb, self.bib(), subset=['year', 'journal'], threshold=threshold)
+                res = find_bib(bibdb, self.bib(), subset=['year', 'journal'], threshold=threshold, debug=self._debug)
 
                 if len(res) == 0:
                     print('... not found')
@@ -490,7 +499,7 @@ class Paper(object):
 
         self.rename()
 
-    def interactive_update(self):
+    def interactive_update(self, dbname=None):
         """ update paper information interactively """
 
         print_bib(self._bib)
@@ -498,7 +507,7 @@ class Paper(object):
         # confirm search
         yesno = input("[CF] Want to serach bib (bibdb/doi/title/skip/quit): ")
         if yesno in ['b', 'B', 'bibdb', '1']:
-            self.search_bib(bibdb=None, threshold=0.6)
+            self.search_bib(bibdb=dbname, threshold=0.6)
         elif yesno in ['d', 'D', "doi", '2']:
             self.download_bib(cache=False)
         elif yesno in ['t', 'title', '3']:
@@ -662,6 +671,7 @@ class Paper(object):
 
         save_bib([self._bib], self._bibfname)
         self._exist_bib = True
+
 
 def openPDF(filename):
     """ open pdf file in macos """
