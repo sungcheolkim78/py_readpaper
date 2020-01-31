@@ -143,7 +143,10 @@ setup(
     #
     # For an analysis of "install_requires" vs pip's requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['pandas', 'PyPDF2'],  # Optional
+    install_requires=['rake_nltk', 'gensim', 'python-Levenshtein', 
+            'arxiv2bib', 'bibtexparser', 
+            'requests', 'pandas', 
+            'PyPDF2', 'pdfminer', 'pyexif' ],  # Optional
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). Users will be able to install these using the "extras"

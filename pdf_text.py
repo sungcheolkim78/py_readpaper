@@ -69,7 +69,8 @@ def convertPDF_xpdf(pdf_path, codec='utf-8', maxpages=0, update=False):
     try:
         # use pdftotext to extract text from pdf
         # -clip : separate clipped text
-        subprocess.call(['pdftotext', '-l', str(maxpages), '-clip', '-enc', codec.upper(), pdf_path, txt_path])
+        #subprocess.call(['pdftotext', '-l', str(maxpages), '-clip', '-enc', codec.upper(), pdf_path, txt_path])
+        subprocess.call(['pdftotext', '-l', str(maxpages), '-enc', codec.upper(), pdf_path, txt_path])
         text = open(txt_path, 'r').readlines()
         return text
 

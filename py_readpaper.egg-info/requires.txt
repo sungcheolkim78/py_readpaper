@@ -1,5 +1,13 @@
+rake_nltk
+gensim
+python-Levenshtein
+arxiv2bib
+bibtexparser
+requests
 pandas
 PyPDF2
+pdfminer
+pyexif
 
 [dev]
 check-manifest

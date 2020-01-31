@@ -185,12 +185,13 @@ def crossref_query_title(title):
     """ retrieve doi from paper title """
 
     api_url = "https://api.crossref.org/works?"
-    params = {"rows": "5", "query.title": title}
+    params = {"rows": "5", "query.bibliographic": title}
     url = api_url + urlencode(params, quote_via=quote_plus)
 
     r = requests.get(url)
     try:
         data = json.loads(r.content)
+        #print(data)
 
         items = data["message"]["items"]
         most_similar = EMPTY_RESULT
@@ -198,7 +199,7 @@ def crossref_query_title(title):
             title = item["title"].pop()
             result = {
                 "crossref_title": title,
-                "similarity": ratio(title.lower(), params["query.title"].lower()),
+                "similarity": ratio(title.lower(), params["query.bibliographic"].lower()),
                 "doi": item["DOI"]
             }
             if most_similar["similarity"] < result["similarity"]:

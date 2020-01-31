@@ -51,9 +51,15 @@ class Paper(object):
         self._exist_bib = False
 
         # check filename
-        year = self._fname.split('-')[0]
-        author1 = self._fname.split('-')[1].replace('_', '-')
-        journal = ''.join(self._fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
+        if self._fname.find('-') > 0:
+            if len(self._fname.split('-')) == 3:
+                year = self._fname.split('-')[0]
+                author1 = self._fname.split('-')[1].replace('_', '-')
+                journal = ''.join(self._fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
+        else:
+            year = 2000
+            author1 = 'kim'
+            journal = 'temp'
 
         # check bib file
         self._bib = read_bib(self._bibfname, cache=False, verb=debug)
@@ -505,12 +511,16 @@ class Paper(object):
         print_bib(self._bib)
 
         # confirm search
-        yesno = input("[CF] Want to serach bib (bibdb/doi/title/skip/quit): ")
+        yesno = input("[CF] Want to serach bib ([b]ibdb/[d]oi/[t]itle/[s]kip/[q]uit/t[y]pe title): ")
         if yesno in ['b', 'B', 'bibdb', '1']:
             self.search_bib(bibdb=dbname, threshold=0.6)
         elif yesno in ['d', 'D', "doi", '2']:
             self.download_bib(cache=False)
         elif yesno in ['t', 'title', '3']:
+            self.doi(checktitle=True)
+        elif yesno in ['y', 'Y', 'type']:
+            title_input = input("Type title: ")
+            self._bib['title'] = title_input
             self.doi(checktitle=True)
         elif yesno in ['q', 'Q', '5']:
             return
