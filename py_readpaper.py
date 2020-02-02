@@ -51,12 +51,12 @@ class Paper(object):
         self._exist_bib = False
 
         # check filename
-        if self._fname.find('-') > 0:
-            if len(self._fname.split('-')) == 3:
-                year = self._fname.split('-')[0]
-                author1 = self._fname.split('-')[1].replace('_', '-')
-                journal = ''.join(self._fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
+        if (self._fname.find('-') > 0) and (len(self._fname.split('-')) >= 3):
+            year = self._fname.split('-')[0]
+            author1 = self._fname.split('-')[1].replace('_', '-')
+            journal = ''.join(self._fname.replace('.pdf', '').split('-')[2:]).replace('_', ' ')
         else:
+            print("... Check filename: {}".format(self._fname))
             year = 2000
             author1 = 'kim'
             journal = 'temp'
