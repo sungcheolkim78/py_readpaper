@@ -16,6 +16,7 @@ import subprocess
 # pdf text reader
 from pdf_text import convertPDF_pdfminer
 from pdf_text import convertPDF_xpdf
+from pdf_text import convertPDF_images
 from pdf_text import cleanup_str
 from pdf_text import find_author1
 from pdf_text import find_keywords
@@ -92,6 +93,7 @@ class Paper(object):
         msg = msg + "- Keywords: {}\n".format(self._bib.get('keywords'))
         msg = msg + "- Subject: {}\n".format(self._bib.get('subject'))
         msg = msg + "- Abstract: {}\n".format(self._bib.get('abstract'))
+        msg = msg + "- Abstract(ko): {}\n".format(self._bib.get('abstract1'))
         msg = msg + "- Bibfile: {}\n".format(self._exist_bib)
 
         return msg
@@ -137,6 +139,7 @@ class Paper(object):
                 'url': self._dictTags.get('URL', ''),
                 'title': self._dictTags.get('Title', ''),
                 'abstract': self._dictTags.get('Description', ''),
+                'abstract1': self._dictTags.get('Description1', ''),
                 'keywords': self._dictTags.get('Keywords', []),
                 'publisher': self._dictTags.get('Publisher', ''),
                 'journal': journal,
@@ -172,6 +175,7 @@ class Paper(object):
         self._set_meta('URL', bibdict.get('url', ''), force=force)
         self._set_meta('Title', bibdict.get('title', ''), force=force)
         self._set_meta('Description', bibdict.get('abstract', ''), force=force)
+        self._set_meta('Description1', bibdict.get('abstract1', ''), force=force)
         self._set_meta('Keywords', bibdict.get('keywords', []), force=force)
         self._set_meta('Publisher', bibdict.get('publisher', ''), force=force)
 
@@ -187,6 +191,20 @@ class Paper(object):
 
         return self._update_bibitem('title', new_value=text)
 
+    def journal(self, text=None):
+        """ set / get journal """
+
+        if isinstance(text, int):
+            text = self.contents()[text]
+            text = text.strip('\n\r')
+
+        return self._update_bibitem('journal', new_value=text)
+
+    def year(self, year=None):
+        """ set / get year """
+
+        return self._update_bibitem('year', new_value=year)
+
     def abstract(self, text=None):
         """ extract or set abstract information """
 
@@ -201,6 +219,23 @@ class Paper(object):
             text = text.replace("ABSTRACT", "").strip()
 
         return self._update_bibitem('abstract', new_value=text)
+
+    def abstract_ko(self, text=None):
+        """ extract or set abstract information korean translation """
+
+        if isinstance(text, int):
+            text = self.contents()[text]
+        if isinstance(text, list):
+            texts = [ self.contents()[i] for i in text ]
+            text = ' '.join(texts)
+
+        if text is not None:
+            # clean up text 한글 초록의 경우 모든 포맷 정보를 유지한다. 
+            text = text.replace('\n', ' ').strip()
+            #text = text.replace("ABSTRACT", "").strip()
+            #text = text.strip()
+
+        return self._update_bibitem('abstract1', new_value=text)
 
     def author(self, text=None):
         """ set / get author """
@@ -475,7 +510,7 @@ class Paper(object):
             else:
                 print("{}".format(t))
 
-    def searchtext(self, sstr):
+    def search_text(self, sstr):
         """ search text by search word """
 
         found = False
@@ -682,6 +717,33 @@ class Paper(object):
         save_bib([self._bib], self._bibfname)
         self._exist_bib = True
 
+    def save_markdown(self, output_dir='markdown/'):
+        """ save paper information as markdown file """
+
+        convertPDF_images(self._fname, output_dir='markdown/')
+        fname = '[paper] ' + self.title().replace(' ', '_') + '('+ str(self.year()) + ').md'
+
+        msg = '### Abstract (ko) \n\n' + self.abstract_ko() + '\n\n'
+        msg += '---\n'
+        msg += '- `Title`: ' + self.title() + '\n'
+        msg += '- `Author`: ' + self.author() + '\n'
+        msg += '- `Year`: ' + str(self.year()) + '\n'
+        msg += '- `Journal`: ' + self.journal() + '\n'
+        msg += '- `DOI`: ' + self.doi() + '\n'
+        msg += '- `Keywords`: ' + ','.join(self.keywords()) + '\n\n'
+        msg += '---\n'
+        msg += '### Abstract \n\n' + self.abstract() + '\n\n'
+        msg += '---\n'
+        msg += '### Pages \n\n'
+        msg += '![image1](' + self._fname.replace('.pdf', '-01.jpg') + ')\n'
+        msg += '![image2](' + self._fname.replace('.pdf', '-02.jpg') + ')\n'
+
+        mk_fname = output_dir + fname
+        with open(mk_fname, "w+") as f:
+            f.write(msg)
+
+        print(msg)
+
 
 def openPDF(filename):
     """ open pdf file in macos """
@@ -693,6 +755,10 @@ def openPDF(filename):
         cd = os.getcwd()
         abs_loc = os.path.join(cd, filename)
 
-    cmd = ['Open', abs_loc]
-    output = subprocess.check_output(cmd)
+    skim_cmd = '/Applications/Skim.app/Contents/MacOS/Skim'
+    if os.path.exists(skim_cmd):
+        cmd = [skim_cmd, abs_loc]
+    else:
+        cmd = ['Open', abs_loc]
+    output = subprocess.Popen(cmd)
 

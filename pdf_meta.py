@@ -256,7 +256,7 @@ def print_bib(bibitem, form='short'):
     if form == 'short':
         col_list = ['year', 'author', 'title', 'journal', 'doi', 'local-url']
     elif form == 'normal':
-        col_list = ['local-url', 'title', 'author', 'year', 'doi', 'journal', 'keywords', 'subject', 'abstract']
+        col_list = ['local-url', 'title', 'author', 'year', 'doi', 'journal', 'keywords', 'subject', 'abstract', 'abstract1']
     elif form == 'full':
         col_list = bibitem.keys()
 

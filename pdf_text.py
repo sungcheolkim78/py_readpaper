@@ -1,5 +1,9 @@
 """
+pdf_text.py
+
 Functions for PDF parsing tools and utils
+
+- update: 2020/02/02 error handling 
 """
 
 import io
@@ -33,7 +37,9 @@ def convertPDF_pdfminer(pdf_path, codec='utf-8', maxpages=0):
     rsrcmgr = PDFResourceManager()
     retstr = io.StringIO()
     laparams = LAParams()
-    device = TextConverter(rsrcmgr, retstr, codec=codec, laparams=laparams)
+    # codec arguments disappeared - 2020/02/02
+    #device = TextConverter(rsrcmgr, retstr, codec=codec, laparams=laparams)  
+    device = TextConverter(rsrcmgr, retstr, laparams=laparams)
 
     fp = open(pdf_path, 'rb')
     interpreter = PDFPageInterpreter(rsrcmgr, device)
@@ -77,6 +83,23 @@ def convertPDF_xpdf(pdf_path, codec='utf-8', maxpages=0, update=False):
     except:
         if os.path.exists(txt_path): os.remove(txt_path)
         return convertPDF_pdfminer(pdf_path, codec=codec, maxpages=maxpages)
+
+
+def convertPDF_images(pdf_path, output_dir='markdown/'):
+    """ using poppler library """
+
+    base, fname = os.path.split(os.path.abspath(pdf_path))
+    jpg_path = base + '/' + output_dir + fname.replace('.pdf', '')
+
+    try:
+        cmd = 'pdftoppm -jpeg -f 1 -l 2 {} {}'.format(pdf_path, jpg_path)
+        #subprocess.run(['pdftoppm', '-jpeg', '-f 1', '-l 2', pdf_path, jpg_path])
+        print(cmd)
+        subprocess.call(cmd, shell=True)
+        return
+    except:
+        print('... error')
+        return
 
 
 def countPDFPages(filename):
